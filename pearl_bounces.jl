@@ -10,7 +10,7 @@ abstract type PearlOld end
 # end
 
 function tick_y(::Type{Pearl}, p::Float64, v::Float64)
-  v -= 0.03f0
+  v -= 0.03
   v *= 0.99f0
   p += v
   return p, v
@@ -40,14 +40,6 @@ end
 #   return _nearestblockpos(pos + 0.13f0 - explosionheight)
 # end
 
-function _slime_bounce_pos(pos::Float64)
-  pos -= floor(pos)
-  return 0.75 <= pos ? 0.51 :
-    0.5 <= pos ? 0. :
-    0.25 <= pos ? 1.51 :
-    1.
-end
-
 struct BounceIndices{N}
   indices::NTuple{N, Int}
   pos::Float64
@@ -70,7 +62,7 @@ end
   end
   first_zero, I, P, V = __inc(ts, tp, tv, Base.tail(indices), entity_type)
   FP = first(P)
-  NP = first_zero ? FP + _slime_bounce_pos(FP) : FP
+  NP = first_zero ? FP + _slime_bounce_pos(entity_type, FP) : FP
   return false, (1, I...), (NP, P...), (1., V...)
 end
 
@@ -129,7 +121,8 @@ julia> sim_bounces(0.0, 1.0, (48, 99))
 ```
 """
 function get_slime_bounces(pos::Float64, vel::Float64, ticks::NTuple{N, Int}, threshold::Float64; entity_type=Pearl, explosion_height=0.061250001192092896, min_pos=pos, max_pos=256., max_ticks=sum(ticks)) where N
-  return _get_slime_bounces(BounceIndices(ticks, pos + vel, vel * 0.99f0 - 0.03f0, entity_type), threshold, entity_type, explosion_height, min_pos, max_pos, max_ticks)
+  pos, vel = tick_y(entity_type, pos, vel)
+  return _get_slime_bounces(BounceIndices(ticks, pos, vel, entity_type), threshold, entity_type, explosion_height, min_pos, max_pos, max_ticks)
 end
 
 function _get_slime_bounces(iter::BounceIndices{N}, threshold::Float64, entity_type::Type, explosion_height::Float64, min_pos::Float64, max_pos::Float64, max_ticks::Int) where N
@@ -184,16 +177,19 @@ Bounced: +1.0, long pulse
 ```
 """
 function sim_bounces(pos::Float64, vel::Float64, indices::Tuple; entitytype::Type=Pearl)
-  pos, vel, tick = pos + vel, vel * 0.99f0 - 0.03f0, 1
+  tick = 1
+  println((0, pos, vel))
   pos, vel = tick_y(entitytype, pos, vel)
-  for (i, bounce) ∈ enumerate(indices)
-    for _ ∈ 2:bounce
+  println((1, pos, vel))
+  pos, vel = tick_y(entitytype, pos, vel)
+  for (i, bounce) in enumerate(indices)
+    for _ in 2:bounce
       println((tick += 1, pos, vel))
       pos, vel = tick_y(entitytype, pos, vel)
     end
     if i != length(indices)
       println("Piston extension on tick $(tick + 1)")
-      for d ∈ _slime_bounce(pos)
+      for d in _slime_bounce(entitytype, pos)
         println((tick += 1, pos += d, 1e0))
         pos, vel = tick_y(entitytype, pos, 1e0)
       end
@@ -203,10 +199,36 @@ function sim_bounces(pos::Float64, vel::Float64, indices::Tuple; entitytype::Typ
   println((tick += 1, pos, vel))
 end
 
-function _slime_bounce(pos::Float64)
+function _slime_bounce(::Type{PearlOld}, pos::Float64)
   pos -= floor(pos)
   return 0.75 <= pos ? (0.51,) :
     0.5 <= pos ? (0.,) :
-    0.25 <= pos ? (0.51, 0.) :
+    0.25 <= pos ? (0., 0.51) :
      (0., 0.)
 end
+
+function _slime_bounce(::Type{Pearl}, pos::Float64)
+  pos -= floor(pos)
+  return 0.75 <= pos ? (0.51,) :
+    # 1.5 <= pos + 0.9603000092506409 ? (0.,) :
+    0.5 <= pos ? (0.,) : # choice between (0) and (0,0.51)
+    0.25 <= pos ? (0., 0.) :
+     (0., 0.)
+end
+
+function _slime_bounce_pos(::Type{PearlOld}, pos::Float64)
+  pos -= floor(pos)
+  return 0.75 <= pos ? 0.51 :
+    0.5 <= pos ? 0. :
+    0.25 <= pos ? 1.51 :
+    1.
+end
+
+function _slime_bounce_pos(::Type{Pearl}, pos::Float64)
+  pos -= floor(pos)
+  return 0.75 <= pos ? 0.51 :
+    0.5 <= pos ? 0. :
+    0.25 <= pos ? 0.9603000092506409 :
+    0.9603000092506409
+end
+
