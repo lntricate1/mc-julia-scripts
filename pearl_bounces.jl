@@ -212,7 +212,7 @@ function _slime_bounce(::Type{Pearl}, pos::Float64)
   return 0.75 <= pos ? (0.51,) :
     # 1.5 <= pos + 0.9603000092506409 ? (0.,) :
     0.5 <= pos ? (0.,) : # choice between (0) and (0,0.51)
-    0.25 <= pos ? (0., 0.) :
+    1.25 <= pos + 0.9603000092506409 ? (0., 0.51) :
      (0., 0.)
 end
 
@@ -228,7 +228,7 @@ function _slime_bounce_pos(::Type{Pearl}, pos::Float64)
   pos -= floor(pos)
   return 0.75 <= pos ? 0.51 :
     0.5 <= pos ? 0. :
-    0.25 <= pos ? 0.9603000092506409 :
+    1.25 <= pos + 0.9603000092506409 ? 0.9603000092506409 + 0.51 :
     0.9603000092506409
 end
 
