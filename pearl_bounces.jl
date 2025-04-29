@@ -161,8 +161,9 @@ end
 end
 
 @inline function Base.iterate(iter::BounceIndices{N}) where N
-  BI = BounceIndex(ntuple(i -> 1, Val(N)), ntuple(i -> iter.pos, Val(N)), ntuple(i -> iter.vel, Val(N)))
-  # BI = BounceIndex(ntuple(i -> 1, Val(N)), __first(ntuple(i -> iter.pos, Val(N)), iter.vel, iter.entity_type)...)
+  # pos, vel = tick_y(iter.entity_type, iter.pos, iter.vel)
+  # BI = BounceIndex(ntuple(i -> 1, Val(N)), ntuple(i -> pos, Val(N)), ntuple(i -> vel, Val(N)))
+  BI = BounceIndex(ntuple(i -> 1, Val(N)), __first(ntuple(i -> iter.pos, Val(N)), iter.vel, iter.entity_type)...)
   return BI, BI
 end
 
@@ -275,11 +276,11 @@ Bounced: +1.0, long pulse
 ```
 """
 function sim_bounces(pos::Float64, vel::Float64, indices::Tuple; entitytype::Type=Pearl)
-  tick = 1
+  tick = 0#1
   println((0, pos, vel))
   pos, vel = tick_y(entitytype, pos, vel)
-  println((1, pos, vel))
-  pos, vel = tick_y(entitytype, pos, vel)
+  # println((1, pos, vel))
+  # pos, vel = tick_y(entitytype, pos, vel)
   for (i, bounce) in enumerate(indices)
     for _ in 2:bounce
       println((tick += 1, pos, vel))
@@ -298,8 +299,7 @@ function sim_bounces(pos::Float64, vel::Float64, indices::Tuple; entitytype::Typ
 end
 
 function sim_bounces_new(pos::Float64, vel::Float64, indices::Tuple; entity_type::Type=Pearl)
-  indices1 = (indices[1]-1, (Base.tail(indices) .+ 1)...)
-  return sim_bounces(pos, vel, indices1; entitytype=entity_type)
+  return sim_bounces(pos, vel, indices .+ 1; entitytype=entity_type)
 end
 
 function _slime_bounce(::Type{PearlOld}, pos::Float64)
