@@ -40,11 +40,78 @@ end
 #   return _nearestblockpos(pos + 0.13f0 - explosionheight)
 # end
 
-struct BounceIndices{N}
+function testnew_impl(N::Int, n::Int, M::Int)
+  if n == 1
+    return quote
+      # p1 = p2
+      p1 = p2 + _slime_bounce_pos(Pearl, p2)
+      v1 = 1.0
+      for t1 in 1:$M
+        # println(($((Symbol("p", j) for j in 1:N)...),), "; ", ($((Symbol("t", j) for j in 1:N)...),))
+        p1, v1 = tick_y(Pearl, p1, v1)
+        # println(p1)
+
+        block, delta = _nearestblockpos(Pearl, p1, explosion_height)
+        if abs(delta) < threshold
+          if block - floor(block) == 0.5
+          println(($((Symbol("p", j) for j in 1:N)...),))
+          end
+          push!(outpos, p1)
+          push!(outvel, v1)
+          push!(outticks, ($((Symbol("t", j) for j in 1:N)...),))
+          push!(outdelta, delta)
+          push!(outblock, block)
+        end
+      end
+    end
+  else
+    tn = Symbol("t", n)
+    pn = Symbol("p", n)
+    vn = Symbol("v", n)
+    pn1 = Symbol("p", n+1)
+    vn1 = Symbol("v", n+1)
+    return n == N ? quote
+      $pn = pos
+      $vn = vel
+      for $tn in 1:$M
+        $(testnew_impl(N, n-1, M))
+        $pn, $vn = tick_y(Pearl, $pn, $vn)
+      end
+    end : quote
+      $pn = $pn1 + _slime_bounce_pos(Pearl, $pn1)
+      $vn = 1.0
+      # $vn = (1-0.03)*0.99f0
+      for $tn in 1:$M
+        $(testnew_impl(N, n-1, M))
+        $pn, $vn = tick_y(Pearl, $pn, $vn)
+      end
+    end
+  end
+end
+
+@generated function testnew(pos::Float64, vel::Float64, bounces::Val{N}, ticks::Val{M}, threshold=0.0, explosion_height::Float64=0.061250001192092896) where {N, M}
+  # pn = Symbol("p", N+1)
+  # vn = Symbol("v", N+1)
+  return quote
+    outpos = Float64[]
+    outvel = Float64[]
+    outticks = NTuple{N, Int}[]
+    outdelta = Float64[]
+    outblock = Float64[]
+
+    # $pn, $vn = tick_y(Pearl, pos, vel)
+    $(testnew_impl(N, N, M))
+    sp = sortperm(outdelta, by=abs)
+    (outpos[sp], outvel[sp], outticks[sp], outdelta[sp], outblock[sp])
+    # nothing
+  end
+end
+
+struct BounceIndices{N,T}
   indices::NTuple{N, Int}
   pos::Float64
   vel::Float64
-  entity_type::Type
+  entity_type::Type{T}
 end
 
 struct BounceIndex{N}
@@ -53,28 +120,59 @@ struct BounceIndex{N}
   V::NTuple{N, Float64}
 end
 
-@inline function __inc(state::NTuple{N, Int}, pos::NTuple{N, Float64}, vel::NTuple{N, Float64}, indices::NTuple{N, Int}, entity_type::Type) where N
-  I = first(state)
-  ts, tp, tv = Base.tail(state), Base.tail(pos), Base.tail(vel)
-  if I < first(indices)
-    NP, NV = tick_y(entity_type, first(pos), first(vel))
-    return true, (I + 1, ts...), (NP, tp...), (NV, tv...)
+@inline function __inc(state::Tuple{Int}, pos::Tuple{Float64}, vel::Tuple{Float64}, indices::Tuple{Int}, entity_type::Type{T}) where T
+  state_ = state[1] + 1
+  pos_, vel_ = tick_y(T, pos[1], vel[1])
+  return (state_,), (pos_,), (vel_,)
+end
+
+@inline function __inc(state::Tuple{Int, Int, Vararg{Int}}, pos::Tuple{Float64, Float64, Vararg{Float64}}, vel::Tuple{Float64, Float64, Vararg{Float64}}, indices::Tuple{Int, Int, Vararg{Int}}, entity_type::Type{T}) where T
+  if state[1] == indices[1]
+    state_, pos_, vel_ = __inc(Base.tail(state), Base.tail(pos), Base.tail(vel), Base.tail(indices), T)
+    pos__, vel__ = tick_y(T, pos_[1], 1.0)
+    return (1, state_...), (pos__ + _slime_bounce_pos(T, pos__), pos_...), (vel__, vel_...)
   end
-  first_zero, I, P, V = __inc(ts, tp, tv, Base.tail(indices), entity_type)
-  FP = first(P)
-  NP = first_zero ? FP + _slime_bounce_pos(entity_type, FP) : FP
-  return false, (1, I...), (NP, P...), (1., V...)
+  pos_, vel_ = tick_y(entity_type, pos[1], vel[1])
+  return (state[1] + 1, Base.tail(state)...), (pos_, Base.tail(pos)...), (vel_, Base.tail(vel)...)
+end
+
+# @inline function __inc(state::NTuple{N, Int}, pos::NTuple{N, Float64}, vel::NTuple{N, Float64}, indices::NTuple{N, Int}, entity_type::Type) where N
+#   I = first(state)
+#   ts, tp, tv = Base.tail(state), Base.tail(pos), Base.tail(vel)
+#   if I < first(indices)
+#     NP, NV = tick_y(entity_type, first(pos), first(vel))
+#     return true, (I + 1, ts...), (NP, tp...), (NV, tv...)
+#   end
+#   first_zero, I, P, V = __inc(ts, tp, tv, Base.tail(indices), entity_type)
+#   FP = first(P)
+#   NP = first_zero ? FP + _slime_bounce_pos(entity_type, FP) : FP
+#   return false, (1, I...), (NP, P...), (1., V...)
+# end
+
+@inline function __first(pos::Tuple{Float64}, vel::Float64, entity_type::Type{T}) where T
+  p, v = tick_y(T, pos[1], vel)
+  return (p,), (v,)
+end
+
+@inline function __first(pos::Tuple{Float64, Float64, Vararg{Float64}}, vel::Float64, entity_type::Type{T}) where T
+  p1, v1 = __first(Base.tail(pos), vel, T)
+  p, v = tick_y(T, p1[1], 1.0)
+  return (p + _slime_bounce_pos(T, p), p1...), (v, v1...)
 end
 
 @inline function Base.iterate(iter::BounceIndices{N}) where N
   BI = BounceIndex(ntuple(i -> 1, Val(N)), ntuple(i -> iter.pos, Val(N)), ntuple(i -> iter.vel, Val(N)))
+  # BI = BounceIndex(ntuple(i -> 1, Val(N)), __first(ntuple(i -> iter.pos, Val(N)), iter.vel, iter.entity_type)...)
   return BI, BI
 end
 
-@inline function Base.iterate(iter::BounceIndices{N}, state::BounceIndex{N}) where N
+@inline function Base.iterate(iter::BounceIndices{N,T}, state::BounceIndex{N}) where {N,T}
   state.I == iter.indices && return nothing
-  _, I, P, V = __inc(state.I, state.P, state.V, iter.indices, iter.entity_type)
+  # _, I, P, V = __inc(state.I, state.P, state.V, iter.indices, iter.entity_type)
+  I, P, V = __inc(state.I, state.P, state.V, iter.indices, iter.entity_type)
   next = BounceIndex(I, P, V)
+  # I = __inc(state.I, iter.indices, iter.entity_type)
+  # next = BounceIndex(I, state.P, state.V)
   return next, next
 end
 
@@ -121,7 +219,7 @@ julia> sim_bounces(0.0, 1.0, (48, 99))
 ```
 """
 function get_slime_bounces(pos::Float64, vel::Float64, ticks::NTuple{N, Int}, threshold::Float64; entity_type=Pearl, explosion_height=0.061250001192092896, min_pos=pos, max_pos=256., max_ticks=sum(ticks)) where N
-  pos, vel = tick_y(entity_type, pos, vel)
+  # pos, vel = tick_y(entity_type, pos, vel)
   return _get_slime_bounces(BounceIndices(ticks, pos, vel, entity_type), threshold, entity_type, explosion_height, min_pos, max_pos, max_ticks)
 end
 
@@ -197,6 +295,11 @@ function sim_bounces(pos::Float64, vel::Float64, indices::Tuple; entitytype::Typ
     end
   end
   println((tick += 1, pos, vel))
+end
+
+function sim_bounces_new(pos::Float64, vel::Float64, indices::Tuple; entity_type::Type=Pearl)
+  indices1 = (indices[1]-1, (Base.tail(indices) .+ 1)...)
+  return sim_bounces(pos, vel, indices1; entitytype=entity_type)
 end
 
 function _slime_bounce(::Type{PearlOld}, pos::Float64)

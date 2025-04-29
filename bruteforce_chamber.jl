@@ -100,7 +100,7 @@ end
 """
     gen_points(blocks::UInt64, ray_indices::Vector{Tuple{Int, Float32, Float32}}, points_per_block::Vector{Int})
 
-Generates ray strengths at key points for a given block layout `blocks`. `rays`
+Generates ray strengths at key points for a given block layout `blocks`.
 """
 function gen_points(blocks::UInt64, ray_indices::Vector{Tuple{Int, Float32, Float32}}, points_per_block::Vector{Int})
   rays = zeros(Float32, 36)
@@ -126,6 +126,14 @@ function gen_points(blocks::UInt64, ray_indices::Vector{Tuple{Int, Float32, Floa
   return points
 end
 
+cum(x::Float32) = 2f0/9f0 * (
+  x <= 4f0*0.7f0 ? 0f0 :
+  x <= 4f0*1.3f0 ? x*(log(x) - log(4f0*0.7f0) - 1) + 4f0*0.7f0 :
+  x <= 11.5f0*0.7f0 ? x*log(1.3f0/0.7f0) + 4f0(0.7f0-1.3f0) :
+  x <= 11.5f0*1.3f0 ? x*(log(11.5f0*1.3f0) - log(x) + 1) + 4f0(0.7f0-1.3f0) - 11.5f0*0.7f0 :
+  9f0/2f0
+)
+
 """
     X_cart(blocks::UInt64, counts::Vector{Float32}, strength_mags_inv::Vector{Float32}, rays::Vector{Float32}, ray_indices::Vector{Tuple{Int, Float32, Float32}}, points_per_block::Vector{Int}, block_counts::Vector{Int})
 
@@ -137,6 +145,7 @@ function X_cart(blocks::UInt64, counts::Vector{Float32}, strength_mags_inv::Vect
   i = 0
   K = 1f0 - 1.3f0/0.6f0
   total = 0f0
+  total1 = 0f0
   for (j, p) in enumerate(points_per_block)
     if blocks & b != 0x0000000000000000
       for _ in 1:p
@@ -145,17 +154,26 @@ function X_cart(blocks::UInt64, counts::Vector{Float32}, strength_mags_inv::Vect
       end
     else
       counts .= 1f0
+      counts1 = 1f0
       for _ in 1:p
         rayind, _, damp = ray_indices[i+=1]
         s = rays[rayind] - 0.09f0
+        # println(clamp.(K .- s.*strength_mags_inv, 0f0, 1f0), ", ", s, ", ", cum(11.5f0*1.7f0 + s))
+        # counts1 *= cum(11.5f0*1.7f0 + s)
+        counts1 *= cum(-s)
         counts .*= clamp.(K .- s.*strength_mags_inv, 0f0, 1f0)
         rays[rayind] -= damp
       end
       counts .-= 1f0
       total += sum(counts)*block_counts[j]
+      total1 += (1-counts1)*block_counts[j]
+      a = -sum(counts)/length(counts)
+      c = 1-counts1
+      println(a-c, ", ", a, ", ", c)
     end
     b *= 0x0000000000000002
   end
+  println((-total/length(counts), total1))
   return -total/length(counts)
 end
 
@@ -271,11 +289,11 @@ function bruteforce_chamber(power::Float32=4f0, iterator::StepRange{UInt, UInt}=
 end
 
 """
-    show_solution(blocks::UInt, power::Float32=11.5f0)
+    show_solution(blocks::UInt, power::Float32=4f0)
 
 Displays a 1/48th symmetrical slice of the blast chamber efficiency using a Makie `voxels` plot.
 """
-function show_solution(blocks::UInt, power::Float32=11.5f0)
+function show_solution(blocks::UInt, power::Float32=4f0, colormap=:inferno)
   points_per_block, ray_indices, block_counts, dict = setup(power)
   points = gen_points(blocks, ray_indices, points_per_block)
 
@@ -301,16 +319,131 @@ function show_solution(blocks::UInt, power::Float32=11.5f0)
     end
   end
   println(total)
-  voxels(ceil.(UInt8, 255data))
+  voxels(data, is_air=(==(0f0)), colormap=colormap)
+end
+
+function _makethedata!(power::Float32, blocks::BitArray{3}, block_counts::Array{Int, 3}, rays::Vector{Tuple{Float64, Float64, Float64}}, pos::Tuple{Float64, Float64, Float64}, data::Array{Float32, 3}, raycounts::Vector{Int})
+  strength_mag_inv = inv(0.6f0power)
+  data .= 1f0
+  K = 1f0 - 1.3f0/0.6f0
+  for (i, r) in enumerate(rays)
+    strength = 1.3f0power
+    damp = 0f0
+    pos_ = pos
+    px = -1; py = -1; pz = -1
+    raycount = 0
+    while strength > 0.09f0
+      x, y, z = trunc.(Int, pos_)
+      raycount += 1
+      if blocks[x,y,z]
+        strength -= 0.09f0
+        damp += 0.09f0
+        if x != px || y != py || z != pz
+          # print(K + strength*strength_mag_inv, ", ")
+          # print(1.3f0/0.6f0 - strength*strength_mag_inv, ", ")
+          # print(K + damp*strength_mag_inv, ", ")
+          # data.val[x,y,z] *= clamp(1.3f0/0.6f0 - strength*strength_mag_inv, 0f0, 1f0)
+          data[x,y,z] *= clamp(K + damp*strength_mag_inv, 0f0, 1f0)
+          # data.val[x,z,y] *= clamp(K + damp*strength_mag_inv, 0f0, 1f0)
+          # data.val[y,x,z] *= clamp(K + damp*strength_mag_inv, 0f0, 1f0)
+          # data.val[y,z,x] *= clamp(K + damp*strength_mag_inv, 0f0, 1f0)
+          # data.val[z,x,y] *= clamp(K + damp*strength_mag_inv, 0f0, 1f0)
+          # data.val[z,y,x] *= clamp(K + damp*strength_mag_inv, 0f0, 1f0)
+        end
+      end
+      strength -= 0.22500001f0
+      damp += 0.22500001f0
+      px = x; py = y; pz = z;
+      pos_ = pos_ .+ r
+    end
+    raycounts[i] = raycount
+  end
+  # println(data.val)
+  data .= 1f0 .- data
+  return dot(block_counts, data)
 end
 
 """
-    show_solution(blocks::UInt, power::Float32=11.5f0)
+    draw_wiki_thing(blocks::UInt, power::Float32=4f0)
+
+Draws a diagram for the Minecraft wiki explosion page.
+"""
+function show_solution2(blocks::BitArray{3}, colormap::Symbol=:inferno, power::Float32=4f0)
+  M = size(blocks)[1]
+  data = zeros(Float32, M, M, M)
+  raycounts = zeros(Int, 169)
+  raydirs = Vector{Tuple{Float64, Float64, Float64}}(undef, 169)
+  raydirsnorm = Vector{Tuple{Float64, Float64, Float64}}(undef, 169)
+  i = 0
+  for x in 8:15, y in 8:15, z in 8:15 if x==15 || y==15 || z==15
+    X, Y, Z = (x, y, z) ./ 15 .* 2 .- 1
+    mag = sqrt(X^2 + Y^2 + Z^2)
+    raydirs[i+=1] = (X, Y, Z).*M
+    raydirsnorm[i] = (X, Y, Z) ./ mag .* 0.3f0
+  end end
+  fig = Figure()
+  ax = LScene(fig[1,1], show_axis=false)
+  # sg = SliderGrid(
+  #   fig[0, 1],
+  #   (label = "X", range = -0.5:0.025:0.5, startvalue = 0.0),
+  #   (label = "Y", range = -0.5:0.025:0.5, startvalue = 0.0),
+  #   (label = "Z", range = -0.5:0.025:0.5, startvalue = 0.0),
+  # )
+  # Pos = lift((x,y,z) -> (x,y,z), sg.sliders[1].value, sg.sliders[2].value, sg.sliders[3].value)
+  Pos = Observable((0.0, 0.0, 0.0))
+  Raydirs = lift(p -> [r .+ p for r in raydirs], Pos)
+  block_counts = [
+    x == y == z == 1 ? 1 :
+    x == y == 1 || y == z == 1 || x == z == 1 ? 2 :
+    x == 1 || y == 1 || z == 1 ? 4 :
+    8 for x in 1:M, y in 1:M, z in 1:M]
+
+  Data = lift(Pos) do pos
+    _makethedata!(power, blocks, block_counts, raydirsnorm, pos .+ 1.5, data, raycounts)
+    return data
+  end
+
+  _makethedata!(power, blocks, block_counts, raydirsnorm, (1.5,1.5,1.5), data, raycounts)
+  plt = voxels!(ax, -0.5 .. M-0.5, -0.5 .. M-0.5, -0.5 .. M-0.5, Data, colorrange=(0.0,1.0), colormap=colormap, is_air=(==(0f0)))
+  Colorbar(fig[2,1], plt, nsteps=256, ticks=0:0.1:1, vertical=false, halign=:center, label="Block break probability")
+  Sc1 = lift(pos -> [pos .+ p.*i for (j, p) in enumerate(raydirsnorm) for i in 1:raycounts[j]], Pos)
+  sc1 = scatter!(Sc1, overdraw=true, color=:red, markersize=2.0, label="Ray points")
+  sc2 = scatter!(Raydirs, overdraw=true, color=:black, markersize=2.0, label="Ray directions")
+  for i in eachindex(raydirs)
+    lines!(lift((p, r) -> [p.+r[i]./2, r[i]], Pos, Raydirs), color=:black, linewidth=0.2)
+  end
+  sc3 = scatter!(lift((p) -> [p], Pos), strokecolor=:black, strokewidth=2, color=:magenta, overdraw=true)
+  axislegend(ax, [sc1 => (;markersize=20), sc2 =>(;markersize=20), sc3 =>(;markersize=20)], ["Ray points", "Ray directions", "Explosion"])
+
+  cam = cam3d!(ax)
+  rotate_cam!(ax.scene, 3pi/16, 0, 0)
+  rotate_cam!(ax.scene, 0, 10pi/8, 0)
+  # zoom!(ax.scene, cam, 0.3)
+  # zoom!(ax.scene, cam, 0.3)
+  iterations = 200
+  record(fig, "rotating thingy.mp4", range(0, 2pi, iterations)[1:end-1], framerate=10) do rot
+    rotate_cam!(ax.scene, 0.0, 2pi/iterations, 0.0)
+  end
+  # iterations = 200
+  # record(fig, "balls.gif", range(0,4pi,iterations), framerate=10) do t
+  #   rotate_cam!(ax.scene, 0.0, 2pi/iterations, 0.0)
+  #   r = 0.4
+  #   pos = (r*cos(t), r*sin(t), r*sin(t))
+  #   x, y, z = pos
+  #   _makethedata!(power, blocks, block_counts, raydirsnorm, (1.5 + x, 1.5 + y, 1.5 + z), data, raycounts)
+  #   Makie.local_update(plt, :, :, :)
+  #   Pos[] = pos
+  # end
+  return fig, ax, cam
+end
+
+"""
+    show_solution3(blocks::UInt, power::Float32=4f0)
 
 Displays the blast chamber efficiency for all blocks using a Makie `voxels` plot.
 """
-function show_solution3(blocks::UInt, power::Float32=11.5f0)
-  points_per_block, ray_indices, block_counts, dict = setup(11.5f0)
+function show_solution3(blocks::UInt, power::Float32=4f0, colormap=:inferno)
+  points_per_block, ray_indices, block_counts, dict = setup(power)
   points = gen_points(blocks, ray_indices, points_per_block)
 
   maxpos = (1,1,1)
@@ -344,7 +477,7 @@ function show_solution3(blocks::UInt, power::Float32=11.5f0)
     end
   end
   println(total)
-  voxels(ceil.(UInt8, 255data))
+  voxels(data, is_air=(==(0f0)), colormap=colormap)
 end
 
 """
