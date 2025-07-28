@@ -130,7 +130,7 @@ end
   if state[1] == indices[1]
     state_, pos_, vel_ = __inc(Base.tail(state), Base.tail(pos), Base.tail(vel), Base.tail(indices), T)
     pos__, vel__ = tick_y(T, pos_[1], 1.0)
-    return (1, state_...), (pos__ + _slime_bounce_pos(T, pos__), pos_...), (vel__, vel_...)
+    return (1, state_...), (pos__ + _slime_bounce_pos(T, pos_[1]), pos_...), (vel__, vel_...)
   end
   pos_, vel_ = tick_y(entity_type, pos[1], vel[1])
   return (state[1] + 1, Base.tail(state)...), (pos_, Base.tail(pos)...), (vel_, Base.tail(vel)...)
@@ -275,7 +275,11 @@ Bounced: +1.0, long pulse
 (102, 15.473738877671474, -0.7443792180972285)
 ```
 """
-function sim_bounces(pos::Float64, vel::Float64, indices::Tuple; entitytype::Type=Pearl)
+function sim_bounces(pos::Float64, vel::Float64, indices::Tuple; entity_type::Type=Pearl)
+  return sim_bounces_old(pos, vel, indices .+ 1; entitytype=entity_type)
+end
+
+function sim_bounces_old(pos::Float64, vel::Float64, indices::Tuple; entitytype::Type=Pearl)
   tick = 0#1
   println((0, pos, vel))
   pos, vel = tick_y(entitytype, pos, vel)
@@ -298,10 +302,6 @@ function sim_bounces(pos::Float64, vel::Float64, indices::Tuple; entitytype::Typ
   println((tick += 1, pos, vel))
 end
 
-function sim_bounces_new(pos::Float64, vel::Float64, indices::Tuple; entity_type::Type=Pearl)
-  return sim_bounces(pos, vel, indices .+ 1; entitytype=entity_type)
-end
-
 function _slime_bounce(::Type{PearlOld}, pos::Float64)
   pos -= floor(pos)
   return 0.75 <= pos ? (0.51,) :
@@ -312,10 +312,11 @@ end
 
 function _slime_bounce(::Type{Pearl}, pos::Float64)
   pos -= floor(pos)
+  println("_slime_bounce(Pearl, $pos)")
   return 0.75 <= pos ? (0.51,) :
-    # 1.5 <= pos + 0.9603000092506409 ? (0.,) :
+    # 1.5 <= pos + 0.97*0.99f0 ? (0.,) :
     0.5 <= pos ? (0.,) : # choice between (0) and (0,0.51)
-    1.25 <= pos + 0.9603000092506409 ? (0., 0.51) :
+    1.25 <= pos + 0.97*0.99f0 ? (0., 0.51) :
      (0., 0.)
 end
 
@@ -331,7 +332,6 @@ function _slime_bounce_pos(::Type{Pearl}, pos::Float64)
   pos -= floor(pos)
   return 0.75 <= pos ? 0.51 :
     0.5 <= pos ? 0. :
-    1.25 <= pos + 0.9603000092506409 ? 0.9603000092506409 + 0.51 :
-    0.9603000092506409
+    1.25 <= pos + 0.97*0.99f0 ? 0.97*0.99f0 + 0.51 :
+    0.97*0.99f0
 end
-
